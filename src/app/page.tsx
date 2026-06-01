@@ -165,16 +165,19 @@ export default function Home() {
 
       {sql && (
         <section className="mt-8">
-          <div className="flex items-baseline justify-between">
+          <div className="flex items-baseline justify-between gap-3">
             <h2 className="text-sm font-medium text-neutral-700">
               Generated SQL
             </h2>
-            {usage && (
-              <span className="text-xs text-neutral-500">
-                {usage.input + usage.cache} in · {usage.output} out
-                {usage.cache > 0 ? " · cache hit" : ""}
-              </span>
-            )}
+            <div className="flex items-center gap-3">
+              {usage && (
+                <span className="text-xs text-neutral-500">
+                  {usage.input + usage.cache} in · {usage.output} out
+                  {usage.cache > 0 ? " · cache hit" : ""}
+                </span>
+              )}
+              <CopyButton text={sql} label="Copy SQL" />
+            </div>
           </div>
           <pre className="mt-2 rounded-md bg-neutral-900 text-neutral-100 text-xs px-3 py-3 overflow-x-auto font-mono">
             {sql}
@@ -184,14 +187,23 @@ export default function Home() {
 
       {result?.ok && (
         <section className="mt-6">
-          <div className="flex items-baseline justify-between">
+          <div className="flex items-baseline justify-between gap-3">
             <h2 className="text-sm font-medium text-neutral-700">
               Results · {result.rows.length}{" "}
               {result.rows.length === 1 ? "row" : "rows"}
             </h2>
-            <span className="text-xs text-neutral-500">
-              {result.elapsedMs.toFixed(0)} ms in-browser
-            </span>
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-neutral-500">
+                {result.elapsedMs.toFixed(0)} ms in-browser
+              </span>
+              {result.rows.length > 0 && (
+                <DownloadCsvButton
+                  columns={result.columns}
+                  rows={result.rows}
+                  question={question}
+                />
+              )}
+            </div>
           </div>
           <ResultTable columns={result.columns} rows={result.rows} />
         </section>
@@ -255,4 +267,82 @@ function formatCell(v: unknown): string {
   }
   if (typeof v === "boolean") return v ? "true" : "false";
   return String(v);
+}
+
+function CopyButton({ text, label }: { text: string; label: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(text);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        } catch {
+          // Older browsers without the async clipboard API: the user can
+          // still select-and-copy from the pre block. Don't pretend it
+          // worked.
+        }
+      }}
+      className="text-xs px-2 py-1 rounded border border-neutral-300 hover:bg-neutral-100"
+    >
+      {copied ? "Copied" : label}
+    </button>
+  );
+}
+
+function DownloadCsvButton({
+  columns,
+  rows,
+  question,
+}: {
+  columns: string[];
+  rows: unknown[][];
+  question: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        const blob = new Blob([toCsv(columns, rows)], {
+          type: "text/csv;charset=utf-8",
+        });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = csvFilename(question);
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      }}
+      className="text-xs px-2 py-1 rounded border border-neutral-300 hover:bg-neutral-100"
+    >
+      Download CSV
+    </button>
+  );
+}
+
+function toCsv(columns: string[], rows: unknown[][]): string {
+  const escape = (v: unknown): string => {
+    if (v === null || v === undefined) return "";
+    const s = typeof v === "number" || typeof v === "boolean" ? String(v) : String(v);
+    // RFC 4180: wrap if the value contains comma, quote, CR, or LF; double
+    // any embedded quote.
+    if (/[",\r\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+    return s;
+  };
+  const header = columns.map(escape).join(",");
+  const body = rows.map((r) => r.map(escape).join(",")).join("\r\n");
+  return header + "\r\n" + body + "\r\n";
+}
+
+function csvFilename(question: string): string {
+  const slug = question
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40);
+  return `asknfl-${slug || "results"}.csv`;
 }
